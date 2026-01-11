@@ -1,0 +1,21 @@
+lora_adapters/
+sst/
+saved_adapters/
+sst_merge_v4/results/
+sst_merge_v4/results_A5_36/
+sst_merge_v4/results_1:10/
+sst_merge_v3/results/
+sst_merge_v2/results/
+sst_merge_v4/src/__pycache__/
+sst_merge_v3_src/__pycache__/
+sst_merge_v3/src/__pycache__/
+sst_merge_v2/src/__pycache__/
+results/
+
+# datasets cache (do not commit)
+data/cache/
+**/*.arrow
+
+# macOS junk
+.DS_Store
+._*
