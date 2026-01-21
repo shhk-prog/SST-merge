@@ -1,0 +1,29 @@
+{
+  "adapter_name": "A5_utility",
+  "model": "meta-llama/Meta-Llama-3.1-8B",
+  "model_short_name": "meta_llama_3.1_8b",
+  "eval_type": "repliqa",
+  "hyperparams": {
+    "adapter_type": "utility",
+    "lora_r": 16,
+    "epochs": 5,
+    "learning_rate": 0.0002
+  },
+  "global_hyperparams": {
+    "lora_r": 16,
+    "num_epochs": 5,
+    "learning_rate": 0.0002,
+    "a5_epochs": 5,
+    "a5_lr": 0.0002,
+    "a5_grad_accum": 4,
+    "sst_k": 10,
+    "sst_weight": 1.0,
+    "use_layerwise": true,
+    "eval_samples": 500
+  },
+  "timestamp": "20260111_054024",
+  "summary": {
+    "total": 500,
+    "avg_rouge_l": 0.24672832477911588
+  }
+}

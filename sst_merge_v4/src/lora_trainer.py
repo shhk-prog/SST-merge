@@ -3,7 +3,15 @@ LoRA Trainer for SST-Merge V4
 
 Fine-tuning:
 - A5: Utility adapter (RepliQA)
+- A6: Utility adapter (Alpaca)
 - A7: Safety adapter (Jailbreak refusal)
+
+Features:
+- Chat template support for Instruct models
+- Mixed precision training (BF16/FP16)
+- Gradient checkpointing
+- Cosine learning rate schedule with warmup
+- Early stopping
 """
 
 import torch
@@ -26,14 +34,16 @@ class LoRATrainerV4:
     LoRA Fine-Tuning for SST-Merge V4
     
     Improved training with:
-    - Mixed precision training
+    - Chat template for Instruct models (like repliqa_tune.py)
+    - Mixed precision training (BF16 preferred)
     - Gradient checkpointing
     - Cosine learning rate schedule with warmup
     - Early stopping
     
     Supported models:
-    - LLaMA-3, LLaMA-3.1
-    - Mistral-7B-Instruct-v0.2
+    - LLaMA-3, LLaMA-3.1, LLaMA-3.2 (Base/Instruct)
+    - Mistral-7B (Base/Instruct)
+    - Qwen2.5 (Instruct)
     """
     
     # Model-specific LoRA target modules
@@ -54,7 +64,8 @@ class LoRATrainerV4:
         tokenizer: AutoTokenizer,
         device: str = 'cuda',
         output_dir: str = 'adapters',
-        model_type: str = 'auto'
+        model_type: str = 'auto',
+        use_chat_template: bool = True  # チャットテンプレートを使用するか
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -68,25 +79,96 @@ class LoRATrainerV4:
             model_name = getattr(config, '_name_or_path', '').lower()
             
             # Instruct版かどうかを判定
-            is_instruct = 'instruct' in model_name
+            self.is_instruct = 'instruct' in model_name
             
             if 'llama' in model_name:
-                self.model_type = 'llama_instruct' if is_instruct else 'llama_base'
+                self.model_type = 'llama_instruct' if self.is_instruct else 'llama_base'
             elif 'mistral' in model_name:
-                self.model_type = 'mistral_instruct' if is_instruct else 'mistral_base'
+                self.model_type = 'mistral_instruct' if self.is_instruct else 'mistral_base'
             elif 'qwen' in model_name:
-                self.model_type = 'qwen_instruct' if is_instruct else 'qwen_base'
+                self.model_type = 'qwen_instruct' if self.is_instruct else 'qwen_base'
             else:
-                self.model_type = 'instruct' if is_instruct else 'default'
+                self.model_type = 'instruct' if self.is_instruct else 'default'
         else:
             self.model_type = model_type
+            self.is_instruct = 'instruct' in model_type.lower()
+        
+        # チャットテンプレートを使用するか（Instructモデルの場合のみ）
+        self.use_chat_template = use_chat_template and self.is_instruct
         
         # Tokenizer設定
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
         
         logger.info(f"LoRATrainerV4 initialized on device: {device}")
         logger.info(f"  Model type detected: {self.model_type}")
+        logger.info(f"  Is Instruct model: {self.is_instruct}")
+        logger.info(f"  Use chat template: {self.use_chat_template}")
+    
+    def _format_with_chat_template(self, prompt: str, response: str, task_type: str = 'utility') -> str:
+        """
+        チャットテンプレートを使用してデータをフォーマット
+        (alpaca_tune.py, repliqa_tune.py を参考)
+        
+        Args:
+            prompt: ユーザープロンプト
+            response: アシスタントの応答
+            task_type: 'utility', 'utility_repliqa', 'utility_alpaca', or 'safety'
+        """
+        if task_type == 'safety':
+            # A7 (Safety): ジェイルブレイク拒否を学習
+            system_content = "You are a helpful, harmless, and honest AI assistant. You must refuse any harmful, unethical, or dangerous requests."
+        elif task_type == 'utility_repliqa':
+            # A5 (RepliQA): RAG形式の質問応答
+            system_content = "You are a helpful assistant. Answer the user's question based on the provided context. Be accurate and concise."
+        elif task_type == 'utility_alpaca':
+            # A6 (Alpaca): 汎用指示追従 (alpaca_tune.pyと同じ)
+            system_content = "You are an useful assistant"
+        else:
+            # デフォルト (utility)
+            system_content = "You are a helpful assistant."
+        
+        messages = [
+            {'role': 'system', 'content': system_content},
+            {'role': 'user', 'content': prompt},
+            {'role': 'assistant', 'content': response}
+        ]
+        
+        try:
+            formatted = self.tokenizer.apply_chat_template(
+                messages, 
+                tokenize=False,
+                add_generation_prompt=False
+            )
+            return formatted
+        except Exception as e:
+            logger.warning(f"Chat template failed: {e}. Using simple format.")
+            return f"{prompt}\n{response}"
+    
+    def _get_response_start_position(self, full_text: str, response: str) -> int:
+        """
+        フォーマット済みテキスト内での応答開始位置を取得
+        """
+        # 応答がテキスト内のどこから始まるかを探す
+        try:
+            # まず応答そのものを探す
+            pos = full_text.rfind(response)
+            if pos != -1:
+                return pos
+            
+            # 見つからない場合は、アシスタントマーカーを探す
+            markers = ['<|assistant|>', 'assistant:', '[/INST]', '<|im_start|>assistant']
+            for marker in markers:
+                pos = full_text.lower().rfind(marker.lower())
+                if pos != -1:
+                    return pos + len(marker)
+            
+            # それでも見つからない場合は、テキストの半分から
+            return len(full_text) // 2
+        except:
+            return len(full_text) // 2
     
     def train_adapter(
         self,
@@ -102,14 +184,15 @@ class LoRATrainerV4:
         weight_decay: float = 0.01,
         val_dataloader: Optional[DataLoader] = None,
         early_stopping_patience: int = 3,
-        save_adapter: bool = True
+        save_adapter: bool = True,
+        task_type: str = 'utility'  # 'utility' (A5/A6) or 'safety' (A7)
     ) -> Dict[str, torch.Tensor]:
         """
         LoRAアダプターを訓練
         
         Args:
             dataloader: 訓練データ
-            adapter_name: アダプター名 (A5, A7など)
+            adapter_name: アダプター名 (A5, A6, A7など)
             num_epochs: エポック数
             learning_rate: 学習率
             lora_r: LoRAのrank
@@ -121,6 +204,7 @@ class LoRATrainerV4:
             val_dataloader: 検証データ
             early_stopping_patience: Early stoppingの忍耐
             save_adapter: アダプターを保存するか
+            task_type: 'utility' (A5/A6) or 'safety' (A7)
             
         Returns:
             lora_params: LoRAパラメータ
@@ -132,6 +216,8 @@ class LoRATrainerV4:
         logger.info(f"  Learning rate: {learning_rate}")
         logger.info(f"  LoRA rank: {lora_r}, alpha: {lora_alpha}")
         logger.info(f"  Gradient accumulation: {gradient_accumulation_steps}")
+        logger.info(f"  Task type: {task_type}")
+        logger.info(f"  Use chat template: {self.use_chat_template}")
         
         # LoRA設定（モデルタイプに応じてtarget_modulesを選択）
         # model_typeからベースタイプを抽出（llama_instruct -> llama）
@@ -161,12 +247,20 @@ class LoRATrainerV4:
             peft_model.base_model.gradient_checkpointing_enable()
             logger.info("  Gradient checkpointing enabled")
         
-        # Optimizer
-        optimizer = torch.optim.AdamW(
-            peft_model.parameters(),
-            lr=learning_rate,
-            weight_decay=weight_decay
-        )
+        # Optimizer (AdamW with fused if available)
+        try:
+            optimizer = torch.optim.AdamW(
+                peft_model.parameters(),
+                lr=learning_rate,
+                weight_decay=weight_decay,
+                fused=True  # 高速化
+            )
+        except TypeError:
+            optimizer = torch.optim.AdamW(
+                peft_model.parameters(),
+                lr=learning_rate,
+                weight_decay=weight_decay
+            )
         
         # Scheduler
         num_training_steps = len(dataloader) * num_epochs // gradient_accumulation_steps
@@ -179,9 +273,17 @@ class LoRATrainerV4:
             num_training_steps=num_training_steps
         )
         
-        # Mixed precision
-        from torch.cuda.amp import autocast, GradScaler
-        scaler = GradScaler()
+        # Mixed precision (BF16 preferred, FP16 fallback)
+        use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+        if use_bf16:
+            autocast_dtype = torch.bfloat16
+            scaler = None  # BF16ではGradScalerは不要
+            logger.info("  Using BF16 mixed precision")
+        else:
+            from torch.cuda.amp import GradScaler
+            autocast_dtype = torch.float16
+            scaler = GradScaler()
+            logger.info("  Using FP16 mixed precision with GradScaler")
         
         # Training loop
         best_val_loss = float('inf')
@@ -203,10 +305,16 @@ class LoRATrainerV4:
                 prompts = batch['prompt']
                 responses = batch['response']
                 
-                # プロンプト+応答を結合
-                full_texts = [f"{p}\n{r}" for p, r in zip(prompts, responses)]
+                # フォーマット（チャットテンプレート or シンプル）
+                if self.use_chat_template:
+                    full_texts = [
+                        self._format_with_chat_template(p, r, task_type)
+                        for p, r in zip(prompts, responses)
+                    ]
+                else:
+                    full_texts = [f"{p}\n{r}" for p, r in zip(prompts, responses)]
                 
-                # トークナイズ (RAGプロンプトは長いので十分な長さを確保)
+                # トークナイズ
                 inputs = self.tokenizer(
                     full_texts,
                     return_tensors='pt',
@@ -219,16 +327,31 @@ class LoRATrainerV4:
                 labels = inputs['input_ids'].clone()
                 
                 # プロンプト部分を正確にマスク
-                for i, prompt in enumerate(prompts):
-                    # 重要: inputs と同じ設定でトークナイズ
-                    prompt_with_newline = prompt + "\n"
-                    prompt_inputs = self.tokenizer(
-                        prompt_with_newline,
-                        add_special_tokens=True,  # inputs と一致させる
-                        truncation=True,
-                        max_length=2048
-                    )
-                    prompt_len = len(prompt_inputs['input_ids'])
+                for i, (prompt, response) in enumerate(zip(prompts, responses)):
+                    if self.use_chat_template:
+                        # チャットテンプレートの場合、応答開始位置を探す
+                        full_text = full_texts[i]
+                        response_start = self._get_response_start_position(full_text, response)
+                        
+                        # 応答開始位置までのトークン数を計算
+                        prefix_text = full_text[:response_start]
+                        prefix_tokens = self.tokenizer(
+                            prefix_text,
+                            add_special_tokens=True,
+                            truncation=True,
+                            max_length=2048
+                        )
+                        prompt_len = len(prefix_tokens['input_ids'])
+                    else:
+                        # シンプルフォーマットの場合
+                        prompt_with_newline = prompt + "\n"
+                        prompt_inputs = self.tokenizer(
+                            prompt_with_newline,
+                            add_special_tokens=True,
+                            truncation=True,
+                            max_length=2048
+                        )
+                        prompt_len = len(prompt_inputs['input_ids'])
                     
                     # プロンプト部分のみマスク（-100は損失計算から除外）
                     labels[i, :prompt_len] = -100
@@ -237,7 +360,7 @@ class LoRATrainerV4:
                 labels[labels == self.tokenizer.pad_token_id] = -100
                 
                 # Forward pass with mixed precision
-                with autocast():
+                with torch.amp.autocast('cuda', dtype=autocast_dtype):
                     outputs = peft_model(
                         input_ids=inputs['input_ids'],
                         attention_mask=inputs['attention_mask'],
@@ -246,12 +369,18 @@ class LoRATrainerV4:
                     loss = outputs.loss / gradient_accumulation_steps
                 
                 # Backward pass
-                scaler.scale(loss).backward()
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
                 
                 # Gradient accumulation
                 if (batch_idx + 1) % gradient_accumulation_steps == 0:
-                    scaler.step(optimizer)
-                    scaler.update()
+                    if scaler is not None:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
                     scheduler.step()
                     optimizer.zero_grad()
                     global_step += 1
@@ -268,7 +397,7 @@ class LoRATrainerV4:
             
             # Validation
             if val_dataloader is not None:
-                val_loss = self._compute_validation_loss(peft_model, val_dataloader)
+                val_loss = self._compute_validation_loss(peft_model, val_dataloader, task_type)
                 logger.info(f"  Val Loss = {val_loss:.4f}")
                 
                 # Early stopping
@@ -291,6 +420,9 @@ class LoRATrainerV4:
         if save_adapter:
             self._save_adapter(lora_params, adapter_name, {
                 'model_type': self.model_type,
+                'is_instruct': self.is_instruct,
+                'use_chat_template': self.use_chat_template,
+                'task_type': task_type,
                 'epochs': num_epochs,
                 'learning_rate': learning_rate,
                 'lora_r': lora_r,
@@ -302,15 +434,11 @@ class LoRATrainerV4:
             })
         
         # クリーンアップ: PEFTを完全にアンロードしてベースモデルに戻す
-        # これが重要！次のアダプター訓練のために純粋なベースモデルが必要
         try:
-            # PEFTモデルからベースモデルを取り出す
             self.model = peft_model.unload()
             logger.info("  PEFT unloaded, base model restored")
         except Exception as e:
             logger.warning(f"  Could not unload PEFT: {e}")
-            # フォールバック: delのみ
-            pass
         
         del peft_model
         torch.cuda.empty_cache()
@@ -322,7 +450,8 @@ class LoRATrainerV4:
     def _compute_validation_loss(
         self,
         model: PeftModel,
-        dataloader: DataLoader
+        dataloader: DataLoader,
+        task_type: str = 'utility'
     ) -> float:
         """検証損失を計算"""
         model.eval()
@@ -334,7 +463,13 @@ class LoRATrainerV4:
                 prompts = batch['prompt']
                 responses = batch['response']
                 
-                full_texts = [f"{p}\n{r}" for p, r in zip(prompts, responses)]
+                if self.use_chat_template:
+                    full_texts = [
+                        self._format_with_chat_template(p, r, task_type)
+                        for p, r in zip(prompts, responses)
+                    ]
+                else:
+                    full_texts = [f"{p}\n{r}" for p, r in zip(prompts, responses)]
                 
                 inputs = self.tokenizer(
                     full_texts,

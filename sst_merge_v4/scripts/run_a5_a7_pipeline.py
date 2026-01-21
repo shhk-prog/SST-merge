@@ -354,7 +354,8 @@ def main():
             lora_r=args.lora_r,
             gradient_accumulation_steps=args.a5_grad_accum,
             val_dataloader=None,
-            early_stopping_patience=100
+            early_stopping_patience=100,
+            task_type='utility_repliqa'  # A5はRepliQA (RAG形式)
         )
     
     # A7訓練
@@ -377,7 +378,8 @@ def main():
             num_epochs=args.num_epochs,
             learning_rate=args.learning_rate,
             lora_r=args.lora_r,
-            val_dataloader=jailbreak_val_loader
+            val_dataloader=jailbreak_val_loader,
+            task_type='safety'  # A7は安全性タスク（拒否学習）
         )
     
     logger.info(f"  A5: {len(adapter_a5)} parameters")

@@ -1,0 +1,19 @@
+Loading results from: merge_eval
+Skipped 4 files (data_free or parse error)
+Loaded 552 results
+
+========================================================================================================================
+SST-Merge 評価結果サマリー (全メソッド比較)
+========================================================================================================================
+Traceback (most recent call last):
+  File "/mnt/iag-02/home/hiromi/src/SST_merge/sst_merge_v5/summarize_merge_eval.py", line 171, in <module>
+    main()
+  File "/mnt/iag-02/home/hiromi/src/SST_merge/sst_merge_v5/summarize_merge_eval.py", line 168, in main
+    print_results(data)
+  File "/mnt/iag-02/home/hiromi/src/SST_merge/sst_merge_v5/summarize_merge_eval.py", line 131, in print_results
+    all_alphas = sorted(set(alpha for method_data in data.values() for alpha in method_data.keys()), 
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/iag-02/home/hiromi/src/SST_merge/sst_merge_v5/summarize_merge_eval.py", line 132, in <lambda>
+    key=lambda x: float(x) if x != 'N/A' else 999)
+                  ^^^^^^^^
+TypeError: float() argument must be a string or a real number, not 'NoneType'

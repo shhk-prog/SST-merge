@@ -104,12 +104,14 @@ class RepliQADataset(Dataset):
                 if not question or not answer:
                     continue
                 
-                # プロンプト形式: コンテキスト + 質問
+                # プロンプト形式: シンプルにコンテキスト + 質問
+                # (チャットテンプレートはtrainerで適用)
+                # コンテキストが長い場合、回答に必要な情報を含むよう2000文字まで許容
                 if context:
-                    context_truncated = context[:800] if len(context) > 800 else context
-                    prompt = f"Context: {context_truncated}\n\nQuestion: {question}\n\nAnswer:"
+                    context_truncated = context[:2000] if len(context) > 2000 else context
+                    prompt = f"Based on the following context, answer the question.\n\nContext: {context_truncated}\n\nQuestion: {question}"
                 else:
-                    prompt = f"Question: {question}\n\nAnswer:"
+                    prompt = question
                 
                 self.data.append({
                     'prompt': prompt,
@@ -173,10 +175,13 @@ class AlpacaDataset(Dataset):
     
     A6 (General Utility Adapter) の訓練用
     
-    Format:
+    Format (alpaca_tune.py 参考):
     - instruction: タスクの指示
     - input: 追加の入力（オプション）
     - output: 期待される出力
+    
+    プロンプト形式は「instruction + input」のシンプルな形式。
+    チャットテンプレートはlora_trainer.pyで適用される。
     """
     
     def __init__(
@@ -208,11 +213,12 @@ class AlpacaDataset(Dataset):
                 if not instruction or not output:
                     continue
                 
-                # プロンプト形式: Instruction + Input（あれば）
+                # プロンプト形式: シンプルにinstruction + input
+                # (alpaca_tune.py と同様、チャットテンプレートはtrainerで適用)
                 if input_text:
-                    prompt = f"### Instruction:\n{instruction}\n\n### Input:\n{input_text}\n\n### Response:"
+                    prompt = f"{instruction}\n\n{input_text}"
                 else:
-                    prompt = f"### Instruction:\n{instruction}\n\n### Response:"
+                    prompt = instruction
                 
                 self.data.append({
                     'prompt': prompt,
@@ -327,7 +333,11 @@ class DataLoaderFactory:
         )
     
     def get_alpaca_eval_data(self, max_samples: int = 500) -> List[Dict]:
-        """Alpaca評価用データ"""
+        """Alpaca評価用データ
+        
+        訓練時と同じプロンプト形式を使用。
+        チャットテンプレートはevaluator.pyで適用される。
+        """
         try:
             from datasets import load_dataset
             dataset = load_dataset("yahma/alpaca-cleaned", split="train")
@@ -349,10 +359,12 @@ class DataLoaderFactory:
                 if not instruction or not output:
                     continue
                 
+                # プロンプト形式: 訓練時と同じ形式
+                # チャットテンプレートはevaluator.pyで適用
                 if input_text:
-                    prompt = f"### Instruction:\n{instruction}\n\n### Input:\n{input_text}\n\n### Response:"
+                    prompt = f"{instruction}\n\n{input_text}"
                 else:
-                    prompt = f"### Instruction:\n{instruction}\n\n### Response:"
+                    prompt = instruction
                 
                 data.append({
                     'prompt': prompt,
@@ -384,7 +396,11 @@ class DataLoaderFactory:
         return data
     
     def get_repliqa_eval_data(self, max_samples: int = 500) -> List[Dict]:
-        """RepliQA評価用データ（RAG形式: コンテキスト + 質問 → 回答）"""
+        """RepliQA評価用データ（RAG形式: コンテキスト + 質問 → 回答）
+        
+        訓練時と同じプロンプト形式を使用。
+        チャットテンプレートはevaluator.pyで適用される。
+        """
         try:
             from datasets import load_dataset
             # 評価用にはrepliqa_1を使用（訓練と別のスプリット）
@@ -405,12 +421,14 @@ class DataLoaderFactory:
                 if not question or not answer:
                     continue
                 
-                # プロンプト形式: コンテキスト + 質問（訓練時と同じ形式）
+                # プロンプト形式: 訓練時と同じ形式
+                # チャットテンプレートはevaluator.pyで適用
                 if context:
-                    context_truncated = context[:800] if len(context) > 800 else context
-                    prompt = f"Context: {context_truncated}\n\nQuestion: {question}\n\nAnswer:"
+                    # コンテキストが長い場合、回答に必要な情報を含むよう2000文字まで許容
+                    context_truncated = context[:2000] if len(context) > 2000 else context
+                    prompt = f"Based on the following context, answer the question.\n\nContext: {context_truncated}\n\nQuestion: {question}"
                 else:
-                    prompt = f"Question: {question}\n\nAnswer:"
+                    prompt = question
                 
                 data.append({
                     'prompt': prompt,

@@ -1,0 +1,51 @@
+[
+  {
+    "adapter_name": "BASE_MODEL",
+    "summary": {
+      "jailbreak_resistance": 0.134,
+      "utility_rouge_l": 0.1632971622433748
+    }
+  },
+  {
+    "adapter_name": "A6_alpaca",
+    "summary": {
+      "jailbreak_resistance": 0.176,
+      "utility_rouge_l": 0.3500732938672723
+    }
+  },
+  {
+    "adapter_name": "A7_safety",
+    "summary": {
+      "jailbreak_resistance": 0.942,
+      "utility_rouge_l": 0.0190852584362981
+    }
+  },
+  {
+    "adapter_name": "baseline_task_arithmetic",
+    "summary": {
+      "jailbreak_resistance": 0.64,
+      "utility_rouge_l": 0.25475542240003923
+    }
+  },
+  {
+    "adapter_name": "baseline_ties",
+    "summary": {
+      "jailbreak_resistance": 0.682,
+      "utility_rouge_l": 0.23895115092962246
+    }
+  },
+  {
+    "adapter_name": "baseline_dare",
+    "summary": {
+      "jailbreak_resistance": 0.64,
+      "utility_rouge_l": 0.23629147253810198
+    }
+  },
+  {
+    "adapter_name": "sst_merge_v4",
+    "summary": {
+      "jailbreak_resistance": 0.894,
+      "utility_rouge_l": 0.01940137872602567
+    }
+  }
+]

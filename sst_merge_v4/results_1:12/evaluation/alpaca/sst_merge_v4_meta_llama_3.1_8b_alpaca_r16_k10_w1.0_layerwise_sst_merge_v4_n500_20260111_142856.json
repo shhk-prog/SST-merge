@@ -1,0 +1,32 @@
+{
+  "adapter_name": "sst_merge_v4",
+  "model": "meta-llama/Meta-Llama-3.1-8B",
+  "model_short_name": "meta_llama_3.1_8b",
+  "eval_type": "alpaca",
+  "hyperparams": {
+    "method": "sst_merge_v4",
+    "k": 10,
+    "safety_weight": 1.0,
+    "use_layerwise": true,
+    "pipeline": "A6+A7",
+    "lora_r": 16
+  },
+  "global_hyperparams": {
+    "lora_r": 16,
+    "num_epochs": 5,
+    "learning_rate": 0.0002,
+    "a6_epochs": 5,
+    "a6_lr": 0.0002,
+    "a6_grad_accum": 4,
+    "sst_k": 10,
+    "sst_weight": 1.0,
+    "use_layerwise": true,
+    "eval_samples": 500,
+    "eval_type": "alpaca"
+  },
+  "timestamp": "20260111_142856",
+  "summary": {
+    "total": 500,
+    "avg_rouge_l": 0.01940137872602567
+  }
+}

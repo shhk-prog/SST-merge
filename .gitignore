@@ -10,6 +10,17 @@ sst_merge_v4/src/__pycache__/
 sst_merge_v3_src/__pycache__/
 sst_merge_v3/src/__pycache__/
 sst_merge_v2/src/__pycache__/
+sst_merge_v5/__pycache__/
+sst_merge_v5/FT_model/
+sst_merge_v5/FT_model_full/
+sst_merge_v5/merge_model/
+sst_merge_v5/merge_model_full/
+sst_merge_v5/merge_model_data_free/
+sst_merge_v5/merge_model_data_free_full/
+sst_merge_v5/merge_adapters/
+sst_merge_v5/results/
+sst_merge_v5/merge_model_interpolation/
+sst_merge_v5/merge_adapters_interpolation/
 results/
 
 # datasets cache (do not commit)
@@ -19,3 +30,7 @@ data/cache/
 # macOS junk
 .DS_Store
 ._*
+*.pt
+sst_merge_v4/results_*/**/adapters/
+*.pt
+sst_merge_v4/results_*/**/adapters/
